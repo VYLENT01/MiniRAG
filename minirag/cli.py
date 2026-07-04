@@ -50,24 +50,30 @@ def main():
                 
                 print_separator()
                 if answer.confidence_level == "REJECTED":
-                    print("[SYSTEM WARNING] LLM output failed Grounding Check (Hallucination blocked).")
+                    print("[SYSTEM WARNING] LLM output failed Grounding Check.")
                 
                 print(answer.text)
                 print_separator()
 
+                # فقط در حالت دیباگ: نمایش کامل Trace
                 if debug_mode:
                     conf_color = "\033[92m" if answer.confidence_level == "HIGH" else ("\033[93m" if answer.confidence_level == "MEDIUM" else "\033[91m")
                     print(f"\n[CONFIDENCE: {conf_color}{answer.confidence_level}\033[0m | Score: {answer.confidence_score:.2f}]")
                     
+                    print("\n--- DEBUG: LLM Raw Output ---")
+                    print(answer.trace.llm_raw_json[:500] + "...")
+                    
+                    if answer.trace.rejected_quotes:
+                        print("\n--- DEBUG: Rejected Quotes (Why it failed) ---")
+                        for rej in answer.trace.rejected_quotes:
+                            print(f"[REJECTED] Reason: {rej.reason}")
+                            print(f"  Quote: {rej.quote[:100]}...\n")
+                            
                     if answer.citations:
-                        print("\n--- DEBUG: Retrieved Chunks ---")
+                        print("--- DEBUG: Retrieved Chunks ---")
                         for i, cit in enumerate(answer.citations, 1):
                             page_info = f"Page {cit.page}" if cit.page else "No Page"
-                            print(f"[{i}] {cit.document_name} | {page_info} | Chunk: {cit.chunk_id} | Sim: {cit.similarity_score:.2f}")
-                            print(f"    >> {cit.exact_snippet}\n")
-                    else:
-                        print("\n[DEBUG] No chunks passed threshold.")
-                        
+                            print(f"[{i}] {cit.document_name} | {page_info} | Sim: {cit.similarity_score:.2f}")
             except MiniRAGError as e:
                 print(f"\n[ERROR] {e}")
                 
