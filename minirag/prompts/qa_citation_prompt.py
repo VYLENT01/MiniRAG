@@ -1,5 +1,5 @@
 """
-QA with Citations Prompt Implementation.
+Strict Extractive Prompt with Multi-Chunk Fusion.
 """
 
 from typing import List
@@ -8,42 +8,27 @@ from minirag.models.search import SearchResult
 
 
 class QACitationPromptBuilder(BasePromptBuilder):
-    """Builds a prompt optimized for strict, dry data extraction."""
-
     def build(self, context: List[SearchResult], question: str) -> str:
-        if not context:
-            return f"QUESTION:\n{question}\n\nNo relevant context was found. Reply ONLY with: پاسخ این سؤال در اسناد موجود یافت نشد."
-
         context_str = ""
         for i, result in enumerate(context, start=1):
-            page_info = result.page if result.page else "Unknown"
-            doc_name = result.document_name if result.document_name else "Unknown Document"
-            
-            context_str += f"[{i}] ({doc_name} - {page_info}):\n{result.text}\n\n"
+            context_str += f"[{i}]:\n{result.text}\n\n"
 
-        # پرامپت سیستم برای خاموش کردن رفتارهای ذاتی LLM
-        prompt = f"""SYSTEM BEHAVIOR OVERRIDE: You are a "Data Extraction Engine". You do NOT think out loud. You do NOT act like a chatbot.
+        prompt = f"""You are a strict "Verbatim Extraction API". 
+You are NOT allowed to generate new text. You are NOT allowed to paraphrase.
+Your ONLY job is to find exact phrases in the CONTEXT that answer the QUESTION.
 
-BANNED PHRASES (Using any of these will cause a system failure):
-- "According to", "Based on", "Translation:", "Please note"
-- "Wait", "I made a mistake", "So, the answer is"
-- Any conversational filler, introductions, or conclusions.
-
-TASK: Extract the answer to the QUESTION from the CONTEXT. Output ONLY the extracted text.
-
-STRICT RULES:
-1. LANGUAGE: Match the question's language 100%. If Persian, output Persian. NO English words.
-2. SEMANTIC EXTRACTION (CRITICAL): Do not act dumb. If the question asks about "A" and the text discusses "B" (but B means the same thing as A, e.g., "تنوع و تجدد" vs "دلزدگی و آرزوهای متعدد"), extract the text about B. Do NOT say "not found" if a semantic link exists.
-3. COMPLETENESS: If asked for a list, extract ALL items.
-4. CITATIONS: Append [Source X] at the end of EVERY extracted sentence.
-5. NOT FOUND: ONLY output exactly "پاسخ این سؤال در اسناد موجود یافت نشد." if the text is 100% completely off-topic.
+RULES:
+1. Read the CONTEXT carefully.
+2. Find exact sentences/phrases from the text that answer the question.
+3. Copy them EXACTLY as they appear. Do not change a single word. Do not add your own explanations.
+4. MULTI-CHUNK FUSION: If the answer is split across multiple sentences or chunks (e.g., a list of 4 stages), combine those exact phrases into a single string using commas, but DO NOT add connecting words like "and" or "then". Just stitch the exact quotes together.
+5. Output ONLY a valid JSON object with a single key "quotes" which is a list of strings.
+6. Language of quotes MUST match the language of the question.
 
 CONTEXT:
 {context_str}
 
-QUESTION:
-{question}
+QUESTION: {question}
 
-EXTRACTION:"""
-
+JSON OUTPUT:"""
         return prompt

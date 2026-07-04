@@ -1,10 +1,8 @@
 """
-MiniRAG Command Line Interface.
+MiniRAG CLI.
 """
-
 import sys
-from minirag import MiniRAG, MiniRAGError, Config
-
+from minirag import MiniRAG, MiniRAGError
 
 def print_separator():
     print("-" * 60)
@@ -12,105 +10,92 @@ def print_separator():
 def main():
     print("Initializing MiniRAG...")
     rag = MiniRAG()
+    debug_mode = False
 
     while True:
-        print("\n=== MiniRAG Main Menu ===")
+        mode_str = " (DEBUG ON)" if debug_mode else ""
+        print(f"\n=== MiniRAG Main Menu{mode_str} ===")
         print("1. Index Document")
         print("2. Ask Question")
         print("3. List Documents")
         print("4. Delete Document")
         print("5. Rebuild Index")
         print("6. Statistics")
+        print("8. Toggle Debug Mode")
         print("0. Exit")
         
         choice = input("Select an option: ").strip()
 
         if choice == "0":
-            print("Exiting MiniRAG. Goodbye!")
             sys.exit(0)
-
+            
+        elif choice == "8":
+            debug_mode = not debug_mode
+            print(f"\nDebug mode turned {'ON' if debug_mode else 'OFF'}.")
+            continue
+            
         elif choice == "1":
-            path = input("Enter absolute document path: ").strip()
-            path = path.strip('"').strip("'") 
+            path = input("Enter absolute document path: ").strip().strip('"').strip("'") 
             try:
                 meta = rag.add_document(path)
-                print(f"\n[SUCCESS] Indexed: {meta.file_name}")
-                print(f"UUID: {meta.uuid}")
-                print(f"Chunks created: {meta.chunk_count}")
+                print(f"\n[SUCCESS] Indexed: {meta.file_name} | Chunks: {meta.chunk_count}")
             except MiniRAGError as e:
                 print(f"\n[ERROR] {e}")
-
+                
         elif choice == "2":
             question = input("Enter your question: ").strip()
-            if not question:
-                continue
+            if not question: continue
             try:
-                print("\nExtracting information...")
                 answer = rag.ask(question)
                 
                 print_separator()
-                # نمایش سطح اطمینان
-                conf_color = "\033[92m" if answer.confidence_level == "HIGH" else ("\033[93m" if answer.confidence_level == "MEDIUM" else "\033[91m")
-                print(f"[Confidence: {conf_color}{answer.confidence_level}\033[0m | Score: {answer.confidence_score:.2f}]")
-                print_separator()
+                if answer.confidence_level == "REJECTED":
+                    print("[SYSTEM WARNING] LLM output failed Grounding Check (Hallucination blocked).")
+                
                 print(answer.text)
                 print_separator()
-                
-                # غنی‌سازی بخش نمایش منابع با UUID کامل
-                if answer.citations:
-                    print("\n--- Referenced Sources ---")
-                    for i, cit in enumerate(answer.citations, 1):
-                        page_info = f"Page {cit.page}" if cit.page else "Unknown Page"
-                        print(f"[{i}] {cit.document_name} | {page_info}")
-                        print(f"    Chunk ID: {cit.chunk_id} | Similarity: {cit.similarity_score:.2f}")
-                        print(f"    > {cit.exact_snippet[:120]}...\n")
-                else:
-                    if not answer.is_faithful:
-                        print("\n[SYSTEM] Blocked by Similarity Threshold (No relevant chunks found).")
 
+                if debug_mode:
+                    conf_color = "\033[92m" if answer.confidence_level == "HIGH" else ("\033[93m" if answer.confidence_level == "MEDIUM" else "\033[91m")
+                    print(f"\n[CONFIDENCE: {conf_color}{answer.confidence_level}\033[0m | Score: {answer.confidence_score:.2f}]")
+                    
+                    if answer.citations:
+                        print("\n--- DEBUG: Retrieved Chunks ---")
+                        for i, cit in enumerate(answer.citations, 1):
+                            page_info = f"Page {cit.page}" if cit.page else "No Page"
+                            print(f"[{i}] {cit.document_name} | {page_info} | Chunk: {cit.chunk_id} | Sim: {cit.similarity_score:.2f}")
+                            print(f"    >> {cit.exact_snippet}\n")
+                    else:
+                        print("\n[DEBUG] No chunks passed threshold.")
+                        
             except MiniRAGError as e:
                 print(f"\n[ERROR] {e}")
-
+                
         elif choice == "3":
             docs = rag.list_documents()
-            if not docs:
-                print("\nNo documents indexed yet.")
+            if not docs: print("\nNo documents indexed yet.")
             else:
-                print(f"\nTotal Documents: {len(docs)}")
-                for doc in docs:
-                    print(f" - [{doc.uuid}] {doc.file_name} ({doc.file_type})")
-
+                for doc in docs: print(f" - [{doc.uuid}] {doc.file_name}")
+                
         elif choice == "4":
             doc_id = input("Enter Document UUID to delete: ").strip()
             try:
-                if rag.delete_document(doc_id):
-                    print(f"\n[SUCCESS] Document {doc_id} deleted.")
-                    print("Note: Run 'Rebuild Index' to clean up the vector store.")
-            except MiniRAGError as e:
-                print(f"\n[ERROR] {e}")
-
+                if rag.delete_document(doc_id): print(f"\n[SUCCESS] Deleted. Run 'Rebuild' to clean vector store.")
+            except MiniRAGError as e: print(f"\n[ERROR] {e}")
+            
         elif choice == "5":
-            print("\nRebuilding vector index... This may take a moment.")
+            print("\nRebuilding index... (This fixes Page Numbers)")
             try:
                 count = rag.rebuild()
-                print(f"\n[SUCCESS] Rebuilt index for {count} documents.")
-            except MiniRAGError as e:
-                print(f"\n[ERROR] {e}")
-
+                print(f"\n[SUCCESS] Rebuilt {count} documents.")
+            except MiniRAGError as e: print(f"\n[ERROR] {e}")
+            
         elif choice == "6":
             docs = rag.list_documents()
-            total_chunks = sum(d.chunk_count for d in docs)
-            print("\n--- Statistics ---")
-            print(f"Total Documents: {len(docs)}")
-            print(f"Total Chunks: {total_chunks}")
-            print(f"Embedding Model: {rag.config.embedding_provider}")
-            print(f"LLM Provider: {rag.config.primary_llm_provider}")
-            print(f"Similarity Threshold: {rag.config.similarity_threshold}")
-            print(f"Data Directory: {rag.config.base_data_dir}")
+            print(f"\nDocs: {len(docs)} | Embedder: {rag.config.embedding_provider} | LLM: {rag.config.primary_llm_provider}")
 
         else:
-            print("\nInvalid option. Please try again.")
-
+            print("\nInvalid option.")
 
 if __name__ == "__main__":
     main()
