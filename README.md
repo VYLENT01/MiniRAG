@@ -1,13 +1,14 @@
+
 <div align="center">
 
 # 🧠 MiniRAG
 
-**A lightweight, library-first RAG engine built from scratch.**
+**A strictly Extractive, Zero-Hallucination RAG engine built from scratch.**
 *Not a framework. Not a wrapper. Pure Python architecture.*
 
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![Architecture: Clean](https://img.shields.io/badge/architecture-Clean_SOLID-green.svg)](https://en.wikipedia.org/wiki/SOLID)
-[![Status: V1.0](https://img.shields.io/badge/status-V1.0_Stable-brightgreen.svg)]()
+[![Status: V1.1](https://img.shields.io/badge/status-V1.1_Extractive-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
 </div>
@@ -27,9 +28,23 @@ It is built to eventually serve as the **Knowledge Engine** for a larger AI assi
 
 ---
 
+## 🧠 Philosophy: Generative vs. Extractive RAG (V1.1 Shift)
+
+Most RAG systems are *Generative*: they fetch documents and ask an LLM to "summarize" or "explain" the answer. This often leads to "Hallucination-Lite" (the LLM changing words, adding unverified concepts, or losing the exact meaning).
+
+**MiniRAG V1.1 is strictly Extractive.**
+Instead of asking the LLM to write the answer, we treat the LLM as a dumb "JSON Extraction API". 
+1. The LLM is only permitted to copy-paste exact sentences from the text into a JSON array.
+2. A deterministic Python layer (The Grounding Checker) verifies if those exact words actually exist in the retrieved chunks.
+3. If the LLM paraphrases, adds a single word, or hallucinates, the Python layer rejects the answer.
+
+**Result:** 100% verifiable answers. If it's in the output, it is guaranteed to be in the document.
+
+---
+
 ## 🏗️ Architecture Overview
 
-MiniRAG follows strict **Interface-First Design** and **Dependency Injection**. Every component (Loader, Embedder, LLM, VectorStore) is a pluggable brick.
+MiniRAG follows strict **Interface-First Design** and **Dependency Injection**. Every component is a pluggable brick, completely separated from the Query orchestration logic.
 
 ```mermaid
 graph TD
@@ -40,30 +55,26 @@ graph TD
     end
 
     subgraph "Ingestion Pipeline (Indexer)"
-        B --> E[Loaders]
+        B --> E[Loaders + Page Extraction]
         E --> F[Cleaners]
         F --> G[Chunkers]
-        G --> H[Embeddings]
-        H --> I[Vector Store]
-        I --> J[Document Registry]
+        G --> H[Embeddings + Cache]
+        H --> I[Vector Store FAISS]
+        I --> J[Document Registry SHA256]
     end
 
     subgraph "Query Pipeline (Query Engine)"
         C --> K[Query Embedding]
-        K --> L[Retriever]
-        L --> M[Prompt Builder]
-        M --> N[LLM Provider]
-        N --> O[Answer + Citations]
+        K --> L[Retriever + Threshold Filter]
+        L --> M[Strict JSON Prompt]
+        M --> N[LLM Extraction ONLY]
+        N --> O[Grounding Checker & Normalizer]
+        O --> P[Answer + Deterministic Citations]
     end
 
     style A fill:#2d3436,stroke:#b2bec3,stroke-width:2px,color:#fff
-    style O fill:#00b894,stroke:#000,color:#fff
+    style P fill:#00b894,stroke:#000,color:#fff
 ```
-
-### Core Design Principles
-*   **Single Responsibility:** Every file does exactly one thing.
-*   **Loose Coupling:** The `QueryEngine` doesn't know what `FAISS` is; it only knows `BaseVectorStore`.
-*   **Open/Closed:** Add OpenAI or Milvus tomorrow without rewriting the core engine.
 
 ---
 
@@ -84,31 +95,32 @@ Vylent (or you) should never know about PDF parsing, chunking, or FAISS. You onl
 ```python
 from minirag import MiniRAG, Config
 
-# Optional: Customize configuration
+# Optional: Override defaults
 config = Config(
     chunk_size=512,
-    primary_llm_provider="gemini",
-    gemini_api_key="your-api-key"
+    similarity_threshold=0.45, # V1.1 Feature
+    primary_llm_provider="ollama"
 )
 
 # Initialize the engine
 rag = MiniRAG(config=config)
 
 # Index a document (handles deduplication via SHA256 automatically)
-rag.add_document("D:/Books/quantum_physics.pdf")
+rag.add_document("D:/Books/philosophy.pdf")
 
-# Ask a question (Returns structured Answer object with citations)
-answer = rag.ask("What is the uncertainty principle?")
+# Ask a question (Returns structured Answer object)
+answer = rag.ask("What is the soul?")
 
 print(answer.text)
+print(f"Confidence Level: {answer.confidence_level}")
 
-for citation in answer.citations:
-    print(f"Source: {citation.document_name} | Page: {citation.page}")
+# Debugging (V1.1 Feature)
+if answer.confidence_level == "REJECTED":
+    for rej in answer.trace.rejected_quotes:
+        print(f"Blocked hallucination: {rej.reason}")
 ```
 
 ### 3. Interactive CLI
-
-MiniRAG comes with a built-in terminal UI for testing and indexing.
 
 ```bash
 python -m minirag.cli
@@ -116,22 +128,23 @@ python -m minirag.cli
 
 ---
 
-## 🧩 Pluggable Components (V1.0)
+## 🧩 Pluggable Components
 
 MiniRAG uses simple Factory patterns to swap implementations effortlessly via `Config`.
 
-| Component | Interface | V1.0 Implementation | Future Options |
+| Component | Interface | V1.1 Implementation | Future Options |
 | :--- | :--- | :--- | :--- |
 | **LLM** | `BaseLLM` | Ollama, Gemini (+ Fallback logic) | OpenAI, Claude, LM Studio |
 | **Embeddings** | `BaseEmbedding` | BAAI/bge-m3 (+ Disk Cache Proxy) | OpenAI, Nomic, Jina |
 | **Vector Store** | `BaseVectorStore` | FAISS (FlatL2 + UUID Mapping) | Qdrant, Milvus, Chroma |
-| **Loaders** | `BaseLoader` | PDF, TXT, Markdown, JSON | DOCX, HTML, PPTX |
+| **Loaders** | `BaseLoader` | PDF (+Pages), TXT, Markdown, JSON | DOCX, HTML, PPTX |
 
-### 🛡️ Intelligent Fallback System
-If your local Ollama server times out, MiniRAG automatically catches the exception and routes the request to Gemini API, ensuring zero downtime in queries.
-
-### 💾 Smart Caching Strategy
-Embeddings are computationally expensive. MiniRAG implements a **Proxy Pattern** (`CachedEmbedding`) that saves `.npy` files to disk. If you rebuild your index or switch vector databases, MiniRAG skips the embedding model entirely and loads the vectors from cache.
+### 🛡️ V1.1 Core Features
+* **Zero-Hallucination Guarantee:** Grounding check ensures no LLM-generated text leaks into the final answer.
+* **Persian NLP Resilient:** Built-in normalizer handles Arabic Diacritics (E'rab), Zero-Width Non-Joiners (ZWNJ), and character variations (`ی` vs `ي`).
+* **Margin-Based Confidence:** Calculated mathematically based on Top-1 vs Top-2 retrieval scores, not guessed by the LLM.
+* **Intelligent Fallback:** Ollama timeout -> Gemini API automatic routing.
+* **Smart Embedding Cache:** Proxy pattern saves `.npy` files to skip heavy re-computation.
 
 ---
 
@@ -141,50 +154,43 @@ Embeddings are computationally expensive. MiniRAG implements a **Proxy Pattern**
 MiniRAG/
 ├── minirag/                    # The importable package
 │   ├── facade.py               # The 5-method public API
+│   ├── formatter.py            # V1.1: Grounding checker & Deterministic assembly
 │   ├── config.py               # Immutable dataclass configuration
 │   ├── engine/                 # Pipeline orchestration
-│   │   ├── indexer.py          # Ingestion flow
-│   │   └── query_engine.py     # Retrieval flow
-│   ├── models/                 # Pure data structures (No I/O)
-│   ├── loaders/                # File parsing
+│   ├── models/                 # Pure data structures (Answer, Trace, Citation)
+│   ├── loaders/                # File parsing (Factory Pattern)
 │   ├── embeddings/             # Vectorization + Cache Proxy
 │   ├── vector_stores/          # Indexing & ID mapping
 │   └── llms/                   # Generation + Fallback wrapper
 ├── data/                       # Runtime generated (Gitignored)
-│   ├── chunks/                 # {doc_uuid}.json
-│   ├── embeddings/             # Optional .npy cache
-│   └── vector_db/              # FAISS index + ID map
 └── tests/                      # Unit & Integration tests
 ```
 
 ---
 
-## 🔮 Roadmap (V2+)
+## 🔮 Roadmap
 
-MiniRAG V1.0 is intentionally strict. No agents, no memory, no hybrid search. The architecture is designed so that adding these features will not break V1.
-
-- [ ] **V1.1:** Retrieval Thresholding, Advanced Debug Traces, Structured Output Formatting.
-- [ ] **V2.0:** Hybrid Search (Sparse + Dense), Query Rewriting, Reranking (Cross-Encoders).
-- [ ] **V3.0:** Conversation Memory, Multi-modal RAG (Images), GraphRAG integration.
-- [ ] **V4.0:** Plugin System, REST/gRPC API exposure for Vylent.
+- [x] **V1.0:** Basic Generative RAG Pipeline, Fallback logic, Caching.
+- [x] **V1.1:** Strict Extractive RAG, Grounding Check, Debug Trace, Persian Normalizer, Page extraction.
+- [ ] **V1.2:** Hybrid Search (BM25 + Dense), Query Expansion.
+- [ ] **V2.0:** Integration into Vylent Agent, REST API exposure.
 
 ---
 
 ## 🤝 Contributing
 
 This is an educational project. If you want to add a new Loader (e.g., DOCX) or a new LLM provider:
-1. Create a new file in the respective folder (e.g., `minirag/loaders/docx_loader.py`).
-2. Inherit from the `Base...` class.
-3. Implement the required methods.
-4. Add a mapping in the folder's `__init__.py` Factory.
+1. Inherit from the `Base...` class.
+2. Implement the required methods.
+3. Add a mapping in the folder's `__init__.py` Factory.
 *(Do not touch the `engine/` or `facade.py`!)*
 
 ---
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.
 
 <div align="center">
-    Built with 🖤 for educational purposes.
+    Built with 🖤 to prove RAG doesn't need to hallucinate.
 </div>
