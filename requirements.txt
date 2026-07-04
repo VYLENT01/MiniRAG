@@ -1,0 +1,13 @@
+# Document Loading
+pypdf>=4.0.0
+
+# Embeddings (Local)
+sentence-transformers>=3.0.0
+torch>=2.0.0
+
+# Vector Store
+faiss-cpu>=1.8.0
+numpy>=1.26.0
+
+# LLM Communication (HTTP)
+requests>=2.31.0

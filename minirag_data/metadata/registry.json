@@ -1,0 +1,19 @@
+[
+    {
+        "uuid": "b8284b36-49f3-421b-8dbb-d54a722e659f",
+        "file_name": "1_4892396550.pdf",
+        "absolute_path": "C:\\Users\\ARYA\\Downloads\\1_4892396550.pdf",
+        "sha256": "a88e6aaa0d37d9bd319e794549142a97cd9de347576b1afb887dae540fb087db",
+        "file_type": "pdf",
+        "language": "en",
+        "file_size": 417629,
+        "created_date": "2026-07-03 00:07:17.889670",
+        "indexed_date": "2026-07-03 16:16:32.785168",
+        "num_pages": null,
+        "chunk_count": 80,
+        "embedding_model": "bge-m3",
+        "chunk_size": 512,
+        "chunk_overlap": 50,
+        "schema_version": "1.0"
+    }
+]

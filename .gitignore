@@ -1,0 +1,33 @@
+# Python
+
+pycache/
+
+*.pyc
+
+*.pyo
+
+*.pyd
+
+.venv/
+
+venv/
+
+# Data
+
+data/embeddings/
+
+data/vector_db/
+
+data/chunks/
+
+# Logs
+
+logs/
+
+# VSCode
+
+.vscode/
+
+# Environment
+
+.env
