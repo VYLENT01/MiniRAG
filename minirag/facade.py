@@ -52,30 +52,36 @@ class MiniRAG:
             index_dir=self.config.vector_db_dir, 
             dimension=self.embedder.dimension
         )
-        self.vector_store.load() # Load existing index if present
+        self.vector_store.load()
 
         # Pipeline engines
         self.indexer = Indexer(self.config, self.registry, self.embedder, self.vector_store)
         
+        # --- Dynamic Retriever Wiring (V1.2) ---
+        if self.config.retriever_provider == "bm25":
+            from minirag.retrievers.bm25_retriever import BM25Retriever
+            final_retriever = BM25Retriever(self.config.chunks_dir, self.registry)
+            
+        elif self.config.retriever_provider == "hybrid":
+            from minirag.retrievers.hybrid_retriever import HybridRetriever
+            from minirag.retrievers.bm25_retriever import BM25Retriever  # این خط اضافه شده بود
+            sem_ret = SemanticRetriever(self.embedder, self.vector_store, self.config.chunks_dir, self.registry, self.config.similarity_threshold)
+            bm25_ret = BM25Retriever(self.config.chunks_dir, self.registry)
+            final_retriever = HybridRetriever(semantic_retriever=sem_ret, bm25_retriever=bm25_ret)
+            
+        else: # Default to "semantic"
+            final_retriever = SemanticRetriever(self.embedder, self.vector_store, self.config.chunks_dir, self.registry, self.config.similarity_threshold)
+
         self.query_engine = QueryEngine(
             embedder=self.embedder,
-            retriever=SemanticRetriever(
-                self.embedder, 
-                self.vector_store, 
-                self.config.chunks_dir, 
-                self.registry,
-                similarity_threshold=self.config.similarity_threshold
-            ),
+            retriever=final_retriever,
             prompt_builder=QACitationPromptBuilder(),
             llm=get_llm(self.config),
             default_top_k=self.config.top_k
         )
 
     def add_document(self, path: str) -> DocumentMetadata:
-        """
-        Index a document from an absolute file path.
-        Automatically handles duplicate detection via SHA256.
-        """
+        """Index a document from an absolute file path."""
         file_path = Path(path).resolve()
         try:
             return self.indexer.index_document(file_path)
@@ -87,11 +93,7 @@ class MiniRAG:
         return self.query_engine.ask(question)
 
     def delete_document(self, document_id: str) -> bool:
-        """
-        Delete a document by its UUID.
-        Note: This removes metadata and chunk files. 
-        The vector store is marked dirty and must be 'rebuilt' to purge vectors.
-        """
+        """Delete a document by its UUID."""
         try:
             doc_uuid = uuid.UUID(document_id)
         except ValueError:
@@ -100,12 +102,10 @@ class MiniRAG:
         if not self.registry.remove(doc_uuid):
             raise DocumentNotFoundError(f"Document with ID {document_id} not found.")
 
-        # Remove the corresponding chunks file
         chunk_file = self.config.chunks_dir / f"{doc_uuid}.json"
         if chunk_file.exists():
             chunk_file.unlink()
             
-        # Optionally remove embedding cache
         if self.config.use_embedding_cache:
             cache_file = self.config.embeddings_dir / self.config.embedding_provider / f"{doc_uuid}.npy"
             if cache_file.exists():
@@ -118,15 +118,10 @@ class MiniRAG:
         return self.registry.list_all()
 
     def rebuild(self) -> int:
-        """
-        Rebuild the entire vector store from existing chunk files.
-        Useful after deletions, or if changing embedding models.
-        Returns the number of documents re-indexed.
-        """
+        """Rebuild the entire vector store from existing chunk files."""
         from minirag.chunkers.fixed_size_chunker import FixedSizeChunker
         from minirag.models.chunk import Chunk, ChunkMetadata
 
-        # 1. Wipe current FAISS index and ID map
         self.vector_store._init_index() 
         self.vector_store.save()
 
@@ -146,13 +141,11 @@ class MiniRAG:
                 with open(chunk_file, 'r', encoding='utf-8') as f:
                     chunks_data = json.load(f)
                 
-                # Reconstruct Chunk objects
                 chunks = [
                     Chunk(text=c["text"], metadata=ChunkMetadata(**c["metadata"])) 
                     for c in chunks_data
                 ]
 
-                # Re-embed and add to fresh FAISS index
                 texts = [c.text for c in chunks]
                 vectors = self.embedder.embed(texts, doc_id=doc.uuid)
                 ids = [c.uuid for c in chunks]
@@ -162,6 +155,5 @@ class MiniRAG:
             except Exception as e:
                 print(f"Warning: Failed to re-index {doc.file_name}: {e}")
 
-        # Save the final rebuilt index
         self.vector_store.save()
         return re_indexed_count

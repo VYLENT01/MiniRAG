@@ -15,7 +15,6 @@ class Config:
     """Immutable configuration for the MiniRAG engine."""
 
     # --- Data Directories ---
-    # Defaults to a 'data' folder in the current working directory
     base_data_dir: Path = field(default_factory=lambda: Path.cwd() / "minirag_data")
     
     @property
@@ -43,35 +42,31 @@ class Config:
     chunk_overlap: int = 50
 
     # --- Embedding Parameters ---
-    embedding_provider: str = "bge-m3"  # Maps to implementations in embeddings/
-    use_embedding_cache: bool = True    # Implements the optional .npy caching logic
+    embedding_provider: str = "bge-m3"
+    use_embedding_cache: bool = True
 
     # --- Vector Store Parameters ---
     vector_store_provider: str = "faiss"
-
+    
+    # --- Retrieval Parameters ---
+    top_k: int = 5
+    similarity_threshold: float = 0.40
+    retriever_provider: str = "hybrid"  # گزینه‌ها: "semantic", "bm25", "hybrid"
+    
     # --- LLM Parameters ---
-    primary_llm_provider: str = "ollama"  # تغییر از gemini به ollama
-    secondary_llm_provider: Optional[str] = "gemini"  # چون فقط gemini دارید، این را None بگذارید
+    primary_llm_provider: str = "ollama"
+    secondary_llm_provider: Optional[str] = "gemini"
     ollama_model: str = "llama3"
     gemini_model: str = "gemini-2.0-flash"
-    
-    # ---------------------------------------------------------
-    # 👇 اینجا جای دقیق قرارگیری کلید API است (به جای None بگذارید)
-    # ---------------------------------------------------------
-    gemini_api_key: Optional[str] = "YOUR_API_KEY"  # جایگزین با کلید واقعی خود کنید
-    
-    llm_timeout: int = 30  # seconds before fallback triggers
+    gemini_api_key: Optional[str] = "YOUR_API_KEY"
+    llm_timeout: int = 30
 
-    # --- Retrieval Parameters ---
-    top_k: int = 5  # Number of chunks to retrieve
-    similarity_threshold: float = 0.40  # <- جدید: چانک‌هایی با امتیاز کمتر از این، زباله در نظر گرفته می‌شوند
     # --- Generation Parameters ---
     temperature: float = 0.7
 
     # --- System Parameters ---
     debug_mode: bool = False
-    schema_version: str = "1.0"
+    schema_version: str = "1.2" # آپدیت ورژن
 
     def __post_init__(self) -> None:
-        # Ensure base_data_dir is a Path object even if passed as string
         object.__setattr__(self, 'base_data_dir', Path(self.base_data_dir))
