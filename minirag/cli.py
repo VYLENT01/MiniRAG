@@ -1,17 +1,65 @@
 """
 MiniRAG CLI.
+Application layer for interacting with the engine via terminal.
+This file is ignored when MiniRAG is used as an imported library.
 """
 import sys
-from minirag import MiniRAG, MiniRAGError
+import time
+import platform
+import subprocess
+import requests
+
+from minirag import MiniRAG, MiniRAGError, Config
 
 def print_separator():
     print("-" * 60)
 
+def ensure_ollama_is_running() -> bool:
+    """
+    Checks if Ollama is running. If not, attempts to start it in the background.
+    This is a CLI convenience feature, NOT part of the core Library.
+    """
+    print("Checking Ollama server status...")
+    try:
+        requests.get("http://localhost:11434/api/tags", timeout=2)
+        print("Ollama is running.\n")
+        return True
+    except (requests.ConnectionError, requests.Timeout):
+        print("Ollama is NOT running. Attempting to start it in the background...")
+        try:
+            if platform.system() == "Windows":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                subprocess.Popen(["ollama", "serve"], startupinfo=startupinfo)
+            else:
+                subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            print("Waiting for Ollama to initialize...")
+            time.sleep(4) 
+            
+            requests.get("http://localhost:11434/api/tags", timeout=3)
+            print("Ollama started successfully.\n")
+            return True
+            
+        except Exception as e:
+            print(f"\n[CRITICAL ERROR] Failed to start Ollama automatically.")
+            print(f"Please start Ollama manually before running MiniRAG. Error: {e}\n")
+            return False
+
 def main():
+    # 1. Prerequisite Check (Application Layer)
+    temp_config = Config()
+    
+    if temp_config.primary_llm_provider == "ollama" or temp_config.secondary_llm_provider == "ollama":
+        if not ensure_ollama_is_running():
+            sys.exit(1)
+
+    # 2. Initialize Core Engine (Library Layer)
     print("Initializing MiniRAG...")
     rag = MiniRAG()
     debug_mode = False
 
+    # 3. UI Loop
     while True:
         mode_str = " (DEBUG ON)" if debug_mode else ""
         print(f"\n=== MiniRAG Main Menu{mode_str} ===")
@@ -55,7 +103,6 @@ def main():
                 print(answer.text)
                 print_separator()
 
-                # فقط در حالت دیباگ: نمایش کامل Trace
                 if debug_mode:
                     conf_color = "\033[92m" if answer.confidence_level == "HIGH" else ("\033[93m" if answer.confidence_level == "MEDIUM" else "\033[91m")
                     print(f"\n[CONFIDENCE: {conf_color}{answer.confidence_level}\033[0m | Score: {answer.confidence_score:.2f}]")
@@ -98,7 +145,7 @@ def main():
             
         elif choice == "6":
             docs = rag.list_documents()
-            print(f"\nDocs: {len(docs)} | Embedder: {rag.config.embedding_provider} | LLM: {rag.config.primary_llm_provider}")
+            print(f"\nDocs: {len(docs)} | Embedder: {rag.config.embedding_provider} | Retriever: {rag.config.retriever_provider} | LLM: {rag.config.primary_llm_provider}")
 
         else:
             print("\nInvalid option.")
